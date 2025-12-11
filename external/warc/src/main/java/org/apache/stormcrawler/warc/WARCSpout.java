@@ -47,8 +47,8 @@ import org.apache.stormcrawler.util.URLUtil;
 import org.netpreserve.jwarc.HttpMessage;
 import org.netpreserve.jwarc.HttpRequest;
 import org.netpreserve.jwarc.HttpResponse;
-import org.netpreserve.jwarc.IOUtils;
 import org.netpreserve.jwarc.MediaType;
+import org.netpreserve.jwarc.MessageBody;
 import org.netpreserve.jwarc.ParsingException;
 import org.netpreserve.jwarc.WarcPayload;
 import org.netpreserve.jwarc.WarcReader;
@@ -237,50 +237,22 @@ public class WARCSpout extends FileSpout {
         if (!payload.isPresent()) {
             return new byte[0];
         }
-        long size = payload.get().body().size();
-        ReadableByteChannel body = payload.get().body();
+        MessageBody body = payload.get().body();
 
-        // Check HTTP Content-Encoding header whether payload needs decoding
-        List<String> contentEncodings = record.http().headers().all("Content-Encoding");
         try {
-            if (contentEncodings.size() > 1) {
-                LOG.error("Multiple Content-Encodings not supported: {}", contentEncodings);
-                LOG.warn("Trying to read payload of {} without Content-Encoding", record.target());
-            } else if (contentEncodings.isEmpty()
-                    || contentEncodings.get(0).equalsIgnoreCase("identity")
-                    || contentEncodings.get(0).equalsIgnoreCase("none")) {
-                // no need for decoding
-            } else if (contentEncodings.get(0).equalsIgnoreCase("gzip")
-                    || contentEncodings.get(0).equalsIgnoreCase("x-gzip")) {
-                LOG.debug(
-                        "Decoding payload of {} from Content-Encoding {}",
-                        record.target(),
-                        contentEncodings.get(0));
-                body = IOUtils.gunzipChannel(body);
-                body.read(ByteBuffer.allocate(0));
-                size = -1;
-            } else if (contentEncodings.get(0).equalsIgnoreCase("deflate")) {
-                LOG.debug(
-                        "Decoding payload of {} from Content-Encoding {}",
-                        record.target(),
-                        contentEncodings.get(0));
-                body = IOUtils.inflateChannel(body);
-                body.read(ByteBuffer.allocate(0));
-                size = -1;
-            } else {
-                LOG.error("Content-Encoding not supported: {}", contentEncodings.get(0));
-                LOG.warn("Trying to read payload of {} without Content-Encoding", record.target());
-            }
+            /*
+             * decode payload of WARC response record: remove Content-Encoding and/or
+             * Transfer-Encoding
+             */
+            body = record.http().bodyDecoded();
         } catch (IOException e) {
-            LOG.error(
-                    "Failed to read payload with Content-Encoding {}: {}",
-                    contentEncodings.get(0),
-                    e.getMessage());
-            LOG.warn("Trying to read payload of {} without Content-Encoding", record.target());
-            body = payload.get().body();
+            LOG.error("Failed to decode payload of {}: {}", record.target(), e.getMessage());
+            LOG.warn("Using raw payload of {}", record.target());
         }
 
-        isTruncated.set(false);
+        isTruncated.set(record.truncated() != WarcTruncationReason.NOT_TRUNCATED);
+
+        long size = body.size();
         if (size > maxContentSize) {
             LOG.info(
                     "WARC payload of size {} to be truncated to {} bytes for {}",
