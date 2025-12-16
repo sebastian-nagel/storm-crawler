@@ -42,11 +42,13 @@ import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
 import kotlin.Pair;
 import okhttp3.Call;
+import okhttp3.CompressionInterceptor;
 import okhttp3.Connection;
 import okhttp3.ConnectionPool;
 import okhttp3.Credentials;
 import okhttp3.EventListener;
 import okhttp3.EventListener.Factory;
+import okhttp3.Gzip;
 import okhttp3.Handshake;
 import okhttp3.Headers;
 import okhttp3.Interceptor;
@@ -59,7 +61,8 @@ import okhttp3.RequestBody;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
 import okhttp3.Route;
-import okhttp3.brotli.BrotliInterceptor;
+import okhttp3.brotli.Brotli;
+import okhttp3.zstd.Zstd;
 import okio.BufferedSource;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.mutable.MutableObject;
@@ -241,8 +244,9 @@ public class HttpProtocol extends AbstractHttpProtocol {
                     }
                 });
 
-        // enable support for Brotli compression (Content-Encoding)
-        builder.addInterceptor(BrotliInterceptor.INSTANCE);
+        // enable support for Zstd, Brotli, Gzip Content-Encoding
+        builder.addInterceptor(
+                new CompressionInterceptor(Zstd.INSTANCE, Brotli.INSTANCE, Gzip.INSTANCE));
 
         final Map<String, Object> connectionPoolConf =
                 (Map<String, Object>) conf.get("okhttp.protocol.connection.pool");
